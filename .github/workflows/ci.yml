@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  repository-guardrails:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reject obvious committed secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git grep -nE '(GOOGLE_CLIENT_SECRET|AI_API_KEY|SESSION_SECRET|ENCRYPTION_KEY)=[^[:space:]]+' -- ':!*.example' ':!*.md'; then
+            echo "Potential committed secret detected."
+            exit 1
+          fi
+      - name: Verify project instructions
+        shell: bash
+        run: |
+          test -f AGENTS.md
+          test -f docs/PRODUCTION_HANDOFF.md
+          test -f .env.example
+
+  backend:
+    runs-on: ubuntu-latest
+    if: ${{ hashFiles('backend/pyproject.toml', 'backend/requirements.txt') != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install backend dependencies
+        shell: bash
+        run: |
+          cd backend
+          python -m pip install --upgrade pip
+          if [ -f pyproject.toml ]; then
+            pip install -e ".[dev]" || pip install -e .
+          else
+            pip install -r requirements.txt
+          fi
+      - name: Backend checks
+        shell: bash
+        run: |
+          cd backend
+          if command -v ruff >/dev/null 2>&1; then ruff check .; fi
+          if command -v pytest >/dev/null 2>&1; then pytest -q; fi
+
+  frontend:
+    runs-on: ubuntu-latest
+    if: ${{ hashFiles('frontend/package.json') != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        run: cd frontend && npm ci
+      - name: Frontend checks
+        run: |
+          cd frontend
+          npm run lint --if-present
+          npm run typecheck --if-present
+          npm test --if-present -- --runInBand
+          npm run build
