@@ -8,6 +8,7 @@ venv/
 .ruff_cache/
 coverage.xml
 htmlcov/
+*.db
 
 # JS
 node_modules/
@@ -24,6 +25,10 @@ coverage/
 *.key
 credentials.json
 token.json
+
+# Media / Uploads
+backend/app/media/*
+!backend/app/media/.gitkeep
 
 # IDE / OS
 .DS_Store
