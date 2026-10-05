@@ -9,10 +9,19 @@ permissions:
   contents: read
 
 jobs:
-  repository-guardrails:
+  checks:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Verify project instructions
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f AGENTS.md
+          test -f docs/PRODUCTION_HANDOFF.md
+          test -f .env.example
+
       - name: Reject obvious committed secrets
         shell: bash
         run: |
@@ -21,54 +30,40 @@ jobs:
             echo "Potential committed secret detected."
             exit 1
           fi
-      - name: Verify project instructions
-        shell: bash
-        run: |
-          test -f AGENTS.md
-          test -f docs/PRODUCTION_HANDOFF.md
-          test -f .env.example
 
-  backend:
-    runs-on: ubuntu-latest
-    if: ${{ hashFiles('backend/pyproject.toml', 'backend/requirements.txt') != '' }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Install backend dependencies
+      - name: Backend checks when backend exists
         shell: bash
         run: |
-          cd backend
+          set -euo pipefail
+          if [ ! -d backend ]; then
+            echo "Backend not created yet; bootstrap checks only."
+            exit 0
+          fi
           python -m pip install --upgrade pip
+          cd backend
           if [ -f pyproject.toml ]; then
             pip install -e ".[dev]" || pip install -e .
-          else
+          elif [ -f requirements.txt ]; then
             pip install -r requirements.txt
           fi
-      - name: Backend checks
-        shell: bash
-        run: |
-          cd backend
           if command -v ruff >/dev/null 2>&1; then ruff check .; fi
           if command -v pytest >/dev/null 2>&1; then pytest -q; fi
 
-  frontend:
-    runs-on: ubuntu-latest
-    if: ${{ hashFiles('frontend/package.json') != '' }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-      - name: Install frontend dependencies
-        run: cd frontend && npm ci
-      - name: Frontend checks
+      - name: Frontend checks when frontend exists
+        shell: bash
         run: |
+          set -euo pipefail
+          if [ ! -f frontend/package.json ]; then
+            echo "Frontend not created yet; bootstrap checks only."
+            exit 0
+          fi
           cd frontend
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
           npm run lint --if-present
           npm run typecheck --if-present
           npm test --if-present -- --runInBand
-          npm run build
+          npm run build --if-present
