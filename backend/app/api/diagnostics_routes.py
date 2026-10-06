@@ -1,12 +1,12 @@
 import sys
-import psutil
-from fastapi import APIRouter, Depends
-from sqlalchemy.ext.asyncio import AsyncSession
-from app.database import get_db
+
+from fastapi import APIRouter
+
 from app.services.ingestion import GLOBAL_PROGRESS
 
 router = APIRouter(prefix="/api/diagnostics", tags=["diagnostics"])
 
+@router.get("", include_in_schema=False)
 @router.get("/")
 async def get_admin_diagnostics():
     return {

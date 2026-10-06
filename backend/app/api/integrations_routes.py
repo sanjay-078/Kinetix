@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Depends
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+
+from app.config import settings
 from app.database import get_db
-from app.models import ConnectedAccount, SheetSyncState, Product, Email, Attachment
+from app.models import ConnectedAccount, Product, SheetSyncState
 from app.services.sheets import batch_sync_to_google_sheets
 from app.services.worker import start_background_worker
-from app.config import settings
 
 router = APIRouter(prefix="/api/integrations", tags=["integrations"])
 

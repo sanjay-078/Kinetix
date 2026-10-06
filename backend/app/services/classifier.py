@@ -1,8 +1,7 @@
 import re
-from typing import Tuple, Dict
 
 # Cached domain and sender rules
-DOMAIN_CACHE: Dict[str, str] = {
+DOMAIN_CACHE: dict[str, str] = {
     "instagram.com": "irrelevant",
     "facebookmail.com": "irrelevant",
     "linkedin.com": "irrelevant",
@@ -17,7 +16,7 @@ DOMAIN_CACHE: Dict[str, str] = {
     "mail.instagram.com": "irrelevant",
 }
 
-SENDER_CACHE: Dict[str, str] = {}
+SENDER_CACHE: dict[str, str] = {}
 
 # Patterns indicating irrelevant emails (OTPs, Security, Social, Newsletters, Service alerts)
 IRRELEVANT_PATTERNS = [
@@ -64,7 +63,7 @@ RELEVANT_PATTERNS = [
     r"\bpayment terms\b"
 ]
 
-def classify_email(sender: str, sender_domain: str, subject: str, body_text: str, headers: dict = None) -> Tuple[str, str]:
+def classify_email(sender: str, sender_domain: str, subject: str, body_text: str, headers: dict = None) -> tuple[str, str]:
     """
     Fast two-stage Python email classifier.
     Returns (classification, reason):
@@ -109,7 +108,7 @@ def classify_email(sender: str, sender_domain: str, subject: str, body_text: str
 
     if relevant_matches >= 2:
         return "relevant", f"Matched supplier keywords: {', '.join(matched_patterns[:3])}"
-    
+
     # Check for price/currency indicators or table-like quotation structures in body
     if re.search(r"(\$|€|£|¥|USD|EUR|GBP|RMB|INR)\s?\d+(\.\d{2})?", body_lower) and re.search(r"\b(qty|quantity|pcs|pieces|units|price|model)\b", body_lower):
         return "relevant", "Detected pricing, quantities, and product keywords"

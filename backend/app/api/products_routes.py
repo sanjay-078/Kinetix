@@ -1,19 +1,20 @@
-from typing import Optional
-from fastapi import APIRouter, Depends, Query, HTTPException
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_
 from sqlalchemy.orm import selectinload
+
 from app.database import get_db
-from app.models import Product, ProductAttribute, Supplier
+from app.models import Product
 
 router = APIRouter(prefix="/api/products", tags=["products"])
 
 @router.get("", include_in_schema=False)
 @router.get("/")
 async def list_products(
-    q: Optional[str] = Query(None, description="Search by name, model, SKU, or category"),
-    supplier_id: Optional[str] = None,
-    currency: Optional[str] = None,
+    q: str | None = Query(None, description="Search by name, model, SKU, or category"),
+    supplier_id: str | None = None,
+    currency: str | None = None,
     db: AsyncSession = Depends(get_db)
 ):
     stmt = select(Product).options(

@@ -1,5 +1,5 @@
-import pytest
-from app.services.classifier import classify_email, cache_domain_rule
+from app.services.classifier import classify_email
+
 
 def test_classify_otp_and_security_emails():
     # OTP Subject

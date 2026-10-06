@@ -1,11 +1,13 @@
 import asyncio
 import json
+
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+
 from app.database import get_db
-from app.models import Product, Supplier, Email, Attachment, ReviewItem
+from app.models import Attachment, Email, Product, ReviewItem, Supplier
 from app.services.ingestion import GLOBAL_PROGRESS
 from app.services.worker import start_background_worker
 
@@ -16,7 +18,7 @@ async def get_dashboard_stats(db: AsyncSession = Depends(get_db)):
     products_count = (await db.execute(select(func.count(Product.id)))).scalar() or 0
     suppliers_count = (await db.execute(select(func.count(Supplier.id)))).scalar() or 0
     emails_count = (await db.execute(select(func.count(Email.id)))).scalar() or 0
-    catalogues_count = (await db.execute(select(func.count(Attachment.id)).where(Attachment.is_pdf == True))).scalar() or 0
+    catalogues_count = (await db.execute(select(func.count(Attachment.id)).where(Attachment.is_pdf.is_(True)))).scalar() or 0
     review_count = (await db.execute(select(func.count(ReviewItem.id)).where(ReviewItem.status == "pending"))).scalar() or 0
 
     return {

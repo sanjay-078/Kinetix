@@ -1,19 +1,27 @@
-import asyncio
+import base64
 import logging
 import time
-from datetime import datetime, timedelta
-from typing import Dict, Any, List
+from datetime import datetime, timedelta, timezone
+from typing import Any
+
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
-from app.models import MailboxSyncState, Email, Supplier, Product, ProductAttribute, Attachment, ReviewItem, AuditEvent
+
+from app.models import (
+    Attachment,
+    Email,
+    Product,
+    ProductAttribute,
+    ReviewItem,
+    Supplier,
+)
 from app.services.classifier import classify_email
 from app.services.extractor import extract_products_from_email
 from app.services.pdf_guardrail import process_pdf_attachment
 
 logger = logging.getLogger(__name__)
 
-# Global progress stats cache for real-time SSE stream
-GLOBAL_PROGRESS: Dict[str, Any] = {
+GLOBAL_PROGRESS: dict[str, Any] = {
     "status": "idle",
     "account_email": "exportdtp@gmail.com",
     "total_discovered": 0,
@@ -32,7 +40,7 @@ GLOBAL_PROGRESS: Dict[str, Any] = {
     "current_status_label": "Ready to connect"
 }
 
-def calculate_eta(total: int, scanned: int, start_time: float) -> tuple[float, float, Optional[str]]:
+def calculate_eta(total: int, scanned: int, start_time: float) -> tuple[float, float, str | None]:
     """
     Calculates current processing speed (msgs/sec) and real remaining ETA in seconds.
     Smooths throughput calculations.
@@ -41,20 +49,70 @@ def calculate_eta(total: int, scanned: int, start_time: float) -> tuple[float, f
     if scanned <= 0 or elapsed <= 0:
         return 0.0, 0.0, None
 
-    speed = scanned / elapsed  # msgs per second
+    speed = scanned / elapsed
     remaining = max(0, total - scanned)
 
     if speed <= 0:
-        return speed, elapsed, None
+        return round(speed, 2), round(elapsed, 1), None
 
     eta_sec = remaining / speed
-    completion_dt = (datetime.utcnow() + timedelta(seconds=eta_sec)).isoformat()
+    now_utc = datetime.now(timezone.utc)
+    completion_dt = (now_utc + timedelta(seconds=eta_sec)).isoformat()
     return round(speed, 2), round(elapsed, 1), completion_dt
 
 
-async def process_single_email(session: AsyncSession, raw_msg: Dict[str, Any]) -> Dict[str, Any]:
+def decode_base64url(data: str) -> bytes:
+    if not data:
+        return b""
+    padded = data + "=" * ((4 - len(data) % 4) % 4)
+    return base64.urlsafe_b64decode(padded.encode("ascii"))
+
+
+def parse_mime_payload(payload: dict[str, Any]) -> tuple[str, str, list[dict[str, Any]]]:
     """
-    Durable, idempotent processing of a single Gmail message object.
+    Recursively extracts text/plain, text/html, and attachment metadata from a Gmail payload.
+    """
+    body_text = ""
+    body_html = ""
+    attachments = []
+
+    mime_type = payload.get("mimeType", "")
+    parts = payload.get("parts", [])
+    body_data = payload.get("body", {}).get("data")
+    filename = payload.get("filename", "")
+
+    if body_data and not filename:
+        try:
+            decoded = decode_base64url(body_data).decode("utf-8", errors="replace")
+            if mime_type == "text/plain":
+                body_text += decoded + "\n"
+            elif mime_type == "text/html":
+                body_html += decoded + "\n"
+        except Exception:
+            pass
+
+    if filename and payload.get("body", {}).get("attachmentId"):
+        attachments.append({
+            "id": payload["body"]["attachmentId"],
+            "filename": filename,
+            "mime_type": mime_type or "application/octet-stream",
+            "size": payload.get("body", {}).get("size", 0)
+        })
+
+    for part in parts:
+        sub_text, sub_html, sub_att = parse_mime_payload(part)
+        if sub_text:
+            body_text += sub_text + "\n"
+        if sub_html:
+            body_html += sub_html + "\n"
+        attachments.extend(sub_att)
+
+    return body_text.strip(), body_html.strip(), attachments
+
+
+async def process_single_email(session: AsyncSession, raw_msg: dict[str, Any]) -> dict[str, Any]:
+    """
+    Durable, idempotent processing of a single Gmail message.
     """
     msg_id = raw_msg.get("id")
     thread_id = raw_msg.get("threadId", "")
@@ -62,9 +120,14 @@ async def process_single_email(session: AsyncSession, raw_msg: Dict[str, Any]) -
     subject = raw_msg.get("subject", "No Subject")
     body_text = raw_msg.get("body_text", "")
     body_html = raw_msg.get("body_html", "")
-    received_at = raw_msg.get("received_at", datetime.utcnow())
-    attachments_raw = raw_msg.get("attachments", [])
+    received_at = raw_msg.get("received_at") or datetime.now(timezone.utc)
+    if isinstance(received_at, str):
+        try:
+            received_at = datetime.fromisoformat(received_at.replace("Z", "+00:00"))
+        except Exception:
+            received_at = datetime.now(timezone.utc)
 
+    attachments_raw = raw_msg.get("attachments", [])
     sender_domain = sender.split("@")[-1] if "@" in sender else "unknown.com"
 
     # Idempotency check: Skip if email already exists
@@ -95,7 +158,7 @@ async def process_single_email(session: AsyncSession, raw_msg: Dict[str, Any]) -
     session.add(email_record)
     await session.flush()
 
-    # Step 2: Handle Irrelevant Email (Eradicate from deep extraction)
+    # Step 2: Handle Irrelevant Email
     if classification == "irrelevant":
         email_record.processing_status = "ignored"
         await session.commit()
@@ -122,26 +185,29 @@ async def process_single_email(session: AsyncSession, raw_msg: Dict[str, Any]) -
     first_pdf_link = None
     for att in attachments_raw:
         filename = att.get("filename", "attachment.pdf")
-        att_bytes = att.get("bytes", b"%PDF-1.4 dummy original pdf content")
-        
-        if filename.lower().endswith(".pdf") or att.get("mime_type") == "application/pdf":
-            pdf_info = process_pdf_attachment(filename, att_bytes, email_record.id, supplier.id)
-            pdf_count += 1
-            if not first_pdf_link:
-                first_pdf_link = pdf_info["web_view_link"]
+        att_bytes = att.get("bytes", b"%PDF-1.4\n% Sample PDF catalogue byte container\n%%EOF")
 
-            attachment_rec = Attachment(
-                email_id=email_record.id,
-                supplier_id=supplier.id,
-                gmail_attachment_id=att.get("id", uuid_hex()),
-                filename=filename,
-                mime_type="application/pdf",
-                file_size=pdf_info["file_size"],
-                is_pdf=True,
-                storage_path=pdf_info["storage_path"],
-                web_view_link=pdf_info["web_view_link"]
-            )
-            session.add(attachment_rec)
+        if filename.lower().endswith(".pdf") or att.get("mime_type") == "application/pdf":
+            try:
+                pdf_info = process_pdf_attachment(filename, att_bytes, email_record.id, supplier.id)
+                pdf_count += 1
+                if not first_pdf_link:
+                    first_pdf_link = pdf_info["web_view_link"]
+
+                attachment_rec = Attachment(
+                    email_id=email_record.id,
+                    supplier_id=supplier.id,
+                    gmail_attachment_id=att.get("id", uuid_hex()),
+                    filename=filename,
+                    mime_type="application/pdf",
+                    file_size=pdf_info["file_size"],
+                    is_pdf=True,
+                    storage_path=pdf_info["storage_path"],
+                    web_view_link=pdf_info["web_view_link"]
+                )
+                session.add(attachment_rec)
+            except Exception as e:
+                logger.warning(f"Error handling PDF attachment {filename}: {e}")
 
     email_record.pdf_count = pdf_count
     supplier.catalogue_count += pdf_count
@@ -172,7 +238,6 @@ async def process_single_email(session: AsyncSession, raw_msg: Dict[str, Any]) -
         await session.flush()
         product_count += 1
 
-        # Save dynamic attributes
         for dyn_attr in prod_data.get("dynamic_attributes", []):
             attr_rec = ProductAttribute(
                 product_id=product_rec.id,
@@ -183,7 +248,7 @@ async def process_single_email(session: AsyncSession, raw_msg: Dict[str, Any]) -
             )
             session.add(attr_rec)
 
-    # Step 6: Create Review Item if uncertain classification or low confidence extraction
+    # Step 6: Uncertainty & Review Queue
     if classification == "uncertain" or (product_count == 0 and pdf_count == 0):
         email_record.processing_status = "review_required"
         review_item = ReviewItem(
@@ -211,6 +276,7 @@ async def process_single_email(session: AsyncSession, raw_msg: Dict[str, Any]) -
     }
 
 
-def uuid_hex():
+def uuid_hex() -> str:
     import uuid
     return uuid.uuid4().hex
+

@@ -1,10 +1,12 @@
 import os
-from fastapi import APIRouter, Depends, HTTPException
+
+from fastapi import APIRouter, Depends
 from fastapi.responses import FileResponse
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.database import get_db
-from app.models import Attachment, Email, Supplier
+from app.models import Attachment, Supplier
 from app.services.pdf_guardrail import MEDIA_DIR
 
 router = APIRouter(prefix="/api/catalogues", tags=["catalogues"])
@@ -12,7 +14,7 @@ router = APIRouter(prefix="/api/catalogues", tags=["catalogues"])
 @router.get("", include_in_schema=False)
 @router.get("/")
 async def list_catalogues(db: AsyncSession = Depends(get_db)):
-    stmt = select(Attachment).where(Attachment.is_pdf == True).order_by(Attachment.created_at.desc())
+    stmt = select(Attachment).where(Attachment.is_pdf.is_(True)).order_by(Attachment.created_at.desc())
     result = await db.execute(stmt)
     attachments = result.scalars().all()
 

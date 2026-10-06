@@ -1,14 +1,16 @@
 import pytest
+
 from app.services.pdf_guardrail import (
-    process_pdf_attachment,
+    PDFGuardrailViolationError,
     assert_pdf_never_parsed,
-    PDFGuardrailViolationError
+    process_pdf_attachment,
 )
+
 
 def test_pdf_guardrail_downloads_and_links_only():
     pdf_bytes = b"%PDF-1.5 Sample test catalogue pdf byte contents"
     filename = "supplier_catalogue_2026.pdf"
-    
+
     result = process_pdf_attachment(filename, pdf_bytes, email_id="email_123", supplier_id="sup_456")
 
     assert result["is_pdf"] is True

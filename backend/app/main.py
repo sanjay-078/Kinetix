@@ -1,22 +1,24 @@
 import os
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse
 
-from app.database import engine, Base
 from app.api.auth_routes import router as auth_router
-from app.api.dashboard_routes import router as dashboard_router
-from app.api.products_routes import router as products_router
-from app.api.suppliers_routes import router as suppliers_router
-from app.api.emails_routes import router as emails_router
 from app.api.catalogues_routes import router as catalogues_router
-from app.api.review_routes import router as review_router
-from app.api.integrations_routes import router as integrations_router
+from app.api.dashboard_routes import router as dashboard_router
 from app.api.diagnostics_routes import router as diagnostics_router
+from app.api.emails_routes import router as emails_router
+from app.api.integrations_routes import router as integrations_router
+from app.api.products_routes import router as products_router
+from app.api.review_routes import router as review_router
+from app.api.suppliers_routes import router as suppliers_router
+from app.database import Base, engine
 from app.services.pdf_guardrail import MEDIA_DIR
 from app.services.worker import start_background_worker
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

@@ -1,5 +1,5 @@
-import pytest
-from app.services.extractor import extract_products_from_email, parse_html_tables, parse_key_value_pairs
+from app.services.extractor import parse_html_tables, parse_key_value_pairs
+
 
 def test_extract_html_table_multi_products():
     html = """
@@ -30,7 +30,7 @@ def test_extract_key_value_pairs_and_dynamic_attributes():
     data = parse_key_value_pairs(text)
     assert data["model"] == "NEMA-17"
     assert data["price"] == 12.00
-    
+
     dyn_names = [a["attribute_name"] for a in data["dynamic_attributes"]]
     assert "Holding Torque" in dyn_names
     assert "Voltage" in dyn_names or "Gsm" in dyn_names

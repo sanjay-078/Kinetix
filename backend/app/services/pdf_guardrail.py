@@ -1,15 +1,14 @@
 import os
 import uuid
-from typing import Dict, Any
+from typing import Any
 
 MEDIA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "media")
 os.makedirs(MEDIA_DIR, exist_ok=True)
 
 class PDFGuardrailViolationError(Exception):
     """Raised if any attempt is made to parse, OCR, summarize, or extract text from a PDF."""
-    pass
 
-def process_pdf_attachment(filename: str, file_bytes: bytes, email_id: str, supplier_id: str = None) -> Dict[str, Any]:
+def process_pdf_attachment(filename: str, file_bytes: bytes, email_id: str, supplier_id: str = None) -> dict[str, Any]:
     """
     STRICT PDF GUARDRAIL RULE:
     1. Detect PDF attachment
@@ -29,7 +28,7 @@ def process_pdf_attachment(filename: str, file_bytes: bytes, email_id: str, supp
     safe_filename = "".join(c for c in filename if c.isalnum() or c in "._- ")
     if not safe_filename:
         safe_filename = f"catalogue_{uuid.uuid4().hex[:8]}.pdf"
-    
+
     file_id = uuid.uuid4().hex
     stored_filename = f"{file_id}_{safe_filename}"
     storage_path = os.path.join(MEDIA_DIR, stored_filename)

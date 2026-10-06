@@ -1,9 +1,11 @@
-from typing import Dict, Any, Optional
-from fastapi import APIRouter, Depends, HTTPException, Body
-from sqlalchemy.ext.asyncio import AsyncSession
+from typing import Any
+
+from fastapi import APIRouter, Body, Depends, HTTPException
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.database import get_db
-from app.models import ReviewItem, Email, Product
+from app.models import Email, ReviewItem
 
 router = APIRouter(prefix="/api/review", tags=["review"])
 
@@ -41,7 +43,7 @@ async def list_review_items(db: AsyncSession = Depends(get_db)):
 @router.post("/{item_id}/confirm")
 async def confirm_review_item(
     item_id: str,
-    corrections: Dict[str, Any] = Body(...),
+    corrections: dict[str, Any] = Body(...),
     db: AsyncSession = Depends(get_db)
 ):
     stmt = select(ReviewItem).where(ReviewItem.id == item_id)

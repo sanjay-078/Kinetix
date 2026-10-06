@@ -1,7 +1,8 @@
-from typing import Optional
-from fastapi import APIRouter, Depends, Query, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.database import get_db
 from app.models import Email
 
@@ -10,11 +11,11 @@ router = APIRouter(prefix="/api/emails", tags=["emails"])
 @router.get("", include_in_schema=False)
 @router.get("/")
 async def list_emails(
-    status: Optional[str] = Query(None, description="Filter: relevant, ignored, processed, review_required, failed"),
+    status: str | None = Query(None, description="Filter: relevant, ignored, processed, review_required, failed"),
     db: AsyncSession = Depends(get_db)
 ):
     stmt = select(Email).order_by(Email.received_at.desc())
-    
+
     if status == "relevant":
         stmt = stmt.where(Email.classification == "relevant")
     elif status == "ignored":

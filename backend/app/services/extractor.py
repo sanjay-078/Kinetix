@@ -1,5 +1,6 @@
 import re
-from typing import List, Dict, Any, Optional
+from typing import Any
+
 from bs4 import BeautifulSoup
 
 # Recognized standard specification field mapping keys
@@ -56,10 +57,10 @@ STANDARD_SPEC_KEYS = {
     "quotation validity": "quotation_validity"
 }
 
-def extract_currency_and_amount(val_str: str) -> tuple[Optional[float], Optional[str]]:
+def extract_currency_and_amount(val_str: str) -> tuple[float | None, str | None]:
     if not val_str:
         return None, None
-    
+
     currency = None
     if "$" in val_str or "USD" in val_str.upper():
         currency = "USD"
@@ -82,7 +83,7 @@ def extract_currency_and_amount(val_str: str) -> tuple[Optional[float], Optional
     return None, currency
 
 
-def parse_html_tables(body_html: str) -> List[Dict[str, Any]]:
+def parse_html_tables(body_html: str) -> list[dict[str, Any]]:
     products = []
     if not body_html:
         return products
@@ -112,7 +113,7 @@ def parse_html_tables(body_html: str) -> List[Dict[str, Any]]:
             if len(cells) < len(headers):
                 continue
 
-            product_dict: Dict[str, Any] = {
+            product_dict: dict[str, Any] = {
                 "name": None,
                 "model": None,
                 "sku": None,
@@ -165,11 +166,11 @@ def parse_html_tables(body_html: str) -> List[Dict[str, Any]]:
     return products
 
 
-def parse_key_value_pairs(body_text: str) -> Dict[str, Any]:
+def parse_key_value_pairs(body_text: str) -> dict[str, Any]:
     """
     Parses key-value formatted text lines (e.g., 'Model: ABC-100', 'Price: $50.00').
     """
-    data: Dict[str, Any] = {
+    data: dict[str, Any] = {
         "name": None,
         "model": None,
         "sku": None,
@@ -220,7 +221,7 @@ def parse_key_value_pairs(body_text: str) -> Dict[str, Any]:
     return data
 
 
-def extract_products_from_email(body_text: str, body_html: str = "") -> List[Dict[str, Any]]:
+def extract_products_from_email(body_text: str, body_html: str = "") -> list[dict[str, Any]]:
     """
     Complete product extraction from email body.
     Extracts multi-products from HTML tables or key-value structures.
@@ -243,11 +244,11 @@ def extract_products_from_email(body_text: str, body_html: str = "") -> List[Dic
     if not products and body_text:
         price_match = re.search(r"(\$|€|£|¥|USD|EUR)\s?([\d,]+(\.\d{2})?)", body_text)
         model_match = re.search(r"\b(Model|Item|SKU|Part\s*#?)\s*[:=]?\s*([A-Za-z0-9\-_]+)", body_text, re.IGNORECASE)
-        
+
         if price_match or model_match:
             price_val, currency_val = extract_currency_and_amount(price_match.group(0)) if price_match else (None, None)
             model_val = model_match.group(2) if model_match else None
-            
+
             products.append({
                 "name": model_val or "Supplier Quoted Item",
                 "model": model_val,

@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from sqlalchemy.orm import selectinload
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.database import get_db
-from app.models import Supplier, Product, Email, Attachment
+from app.models import Attachment, Email, Product, Supplier
 
 router = APIRouter(prefix="/api/suppliers", tags=["suppliers"])
 
@@ -42,7 +42,7 @@ async def get_supplier_detail(supplier_id: str, db: AsyncSession = Depends(get_d
     emails_stmt = select(Email).where(Email.sender_domain == s.domain).order_by(Email.received_at.desc())
     emails = (await db.execute(emails_stmt)).scalars().all()
 
-    catalogues_stmt = select(Attachment).where(Attachment.supplier_id == supplier_id, Attachment.is_pdf == True)
+    catalogues_stmt = select(Attachment).where(Attachment.supplier_id == supplier_id, Attachment.is_pdf.is_(True))
     catalogues = (await db.execute(catalogues_stmt)).scalars().all()
 
     return {

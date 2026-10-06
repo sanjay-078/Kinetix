@@ -1,13 +1,27 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
+
 from sqlalchemy import (
-    Column, String, Text, Integer, Float, Boolean, DateTime, ForeignKey, JSON, Index
+    JSON,
+    Boolean,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
 )
 from sqlalchemy.orm import relationship
+
 from app.database import Base
+
 
 def generate_uuid():
     return str(uuid.uuid4())
+
+def utc_now():
+    return datetime.now(timezone.utc)
 
 class ConnectedAccount(Base):
     __tablename__ = "connected_accounts"
@@ -21,8 +35,8 @@ class ConnectedAccount(Base):
     scopes = Column(Text, nullable=True)
     status = Column(String, default="disconnected")  # connected, error, disconnected
     last_sync_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
 
 class MailboxSyncState(Base):
@@ -47,7 +61,7 @@ class MailboxSyncState(Base):
     next_page_token = Column(String, nullable=True)
     last_history_id = Column(String, nullable=True)
     started_at = Column(DateTime, nullable=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
 
 class Email(Base):
@@ -72,8 +86,8 @@ class Email(Base):
     pdf_count = Column(Integer, default=0)
     error_message = Column(Text, nullable=True)
     source_email_link = Column(String, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
     products = relationship("Product", back_populates="email", cascade="all, delete-orphan")
     attachments = relationship("Attachment", back_populates="email", cascade="all, delete-orphan")
@@ -92,8 +106,8 @@ class Supplier(Base):
     product_count = Column(Integer, default=0)
     email_count = Column(Integer, default=0)
     catalogue_count = Column(Integer, default=0)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
     products = relationship("Product", back_populates="supplier")
     attachments = relationship("Attachment", back_populates="supplier")
@@ -155,8 +169,8 @@ class Product(Base):
     received_at = Column(DateTime, nullable=False, index=True)
     confidence_score = Column(Float, default=1.0)
     review_status = Column(String, default="confirmed", index=True)  # confirmed, needs_review, user_approved
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
     email = relationship("Email", back_populates="products")
     supplier = relationship("Supplier", back_populates="products")
@@ -172,7 +186,7 @@ class ProductAttribute(Base):
     attribute_value = Column(Text, nullable=False)
     unit = Column(String, nullable=True)
     source_email_id = Column(String, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
 
     product = relationship("Product", back_populates="dynamic_attributes")
 
@@ -191,7 +205,7 @@ class Attachment(Base):
     storage_path = Column(String, nullable=True)
     drive_file_id = Column(String, nullable=True)
     web_view_link = Column(String, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
 
     email = relationship("Email", back_populates="attachments")
     supplier = relationship("Supplier", back_populates="attachments")
@@ -206,7 +220,7 @@ class PdfLink(Base):
     supplier_id = Column(String, nullable=True, index=True)
     filename = Column(String, nullable=False)
     web_url = Column(String, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
 
 
 class ReviewItem(Base):
@@ -220,7 +234,7 @@ class ReviewItem(Base):
     candidate_values = Column(JSON, nullable=True)
     confidence = Column(Float, default=0.5)
     status = Column(String, default="pending", index=True)  # pending, resolved, dismissed
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
     resolved_at = Column(DateTime, nullable=True)
 
 
@@ -236,7 +250,7 @@ class SheetSyncState(Base):
     attachments_synced = Column(Integer, default=0)
     status = Column(String, default="idle")  # idle, syncing, complete, error
     error_message = Column(Text, nullable=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
 
 class ProcessingJob(Base):
@@ -249,8 +263,8 @@ class ProcessingJob(Base):
     retries = Column(Integer, default=0)
     checkpoint_data = Column(JSON, nullable=True)
     error_message = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
 
 class AuditEvent(Base):
@@ -260,4 +274,5 @@ class AuditEvent(Base):
     event_type = Column(String, nullable=False, index=True)
     description = Column(Text, nullable=False)
     details = Column(JSON, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
+
