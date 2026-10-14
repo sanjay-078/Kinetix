@@ -35,6 +35,10 @@ backend/app/media/*
 .vscode/
 .idea/
 
-# Runtime
+# Runtime / Test reports
 *.log
 tmp/
+.playwright-cli/
+test-results/
+playwright-report/
+*.egg-info/
