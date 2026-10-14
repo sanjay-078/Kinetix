@@ -11,4 +11,5 @@ services:
       - key: TARGET_GMAIL_ACCOUNT
         value: exportdtp@gmail.com
       - key: GOOGLE_REDIRECT_URI
-        value: https://kinetix.onrender.com/api/auth/callback
+        value: https://kinetix-app.onrender.com/api/auth/callback
+
