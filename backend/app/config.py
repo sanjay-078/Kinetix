@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     # Google OAuth
     GOOGLE_CLIENT_ID: str = Field(default="")
     GOOGLE_CLIENT_SECRET: str = Field(default="")
-    GOOGLE_REDIRECT_URI: str = Field(default="http://localhost:8000/api/auth/callback")
+    GOOGLE_REDIRECT_URI: str = Field(default="https://kinetix-app.onrender.com/api/auth/callback")
     TARGET_GMAIL_ACCOUNT: str = Field(default="exportdtp@gmail.com")
 
     # Google Drive / Sheets
