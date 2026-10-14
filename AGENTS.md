@@ -44,3 +44,7 @@ Use “Kinetix” only in the primary header/brand position.
 Before release, run linting, typing, unit tests, integration tests, E2E tests, browser QA, accessibility checks, security scanning, dependency scanning, secret scanning, and load/performance testing. Fix reproducible defects and rerun affected suites.
 
 The release is done only when the live production URL passes smoke tests.
+
+## Autonomous delivery and minimal user involvement
+
+Read `docs/AUTONOMOUS_DELIVERY.md` and follow it as the current end-to-end operating mandate. The user performs **only unavoidable account-owner approvals**; implementation, troubleshooting, security, testing, deployment, and live production verification are the agent's responsibility. Do not claim completion until the actual live URL passes a full smoke test.
