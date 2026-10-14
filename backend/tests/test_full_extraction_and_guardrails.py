@@ -1,7 +1,13 @@
 import pytest
+
 from app.services.classifier import classify_email
 from app.services.extractor import parse_html_tables, parse_key_value_pairs
-from app.services.pdf_guardrail import assert_pdf_never_parsed, PDFGuardrailViolationError, process_pdf_attachment
+from app.services.pdf_guardrail import (
+    PDFGuardrailViolationError,
+    assert_pdf_never_parsed,
+    process_pdf_attachment,
+)
+
 
 def test_multi_product_html_table_parsing():
     html_content = """
