@@ -10,7 +10,7 @@ from sqlalchemy import select
 
 from app.config import settings
 from app.database import AsyncSessionLocal
-from app.models import ConnectedAccount, Email, MailboxSyncState
+from app.models import ConnectedAccount, Email
 from app.services.auth import get_valid_credentials
 from app.services.ingestion import (
     GLOBAL_PROGRESS,
