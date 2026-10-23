@@ -148,9 +148,11 @@ async def batch_sync_to_google_sheets(session: AsyncSession, creds=None, spreads
 
     state_result = await session.execute(select(SheetSyncState))
     sheet_state = state_result.scalar_one_or_none()
-    target_sheet_id = spreadsheet_id or settings.GOOGLE_SHEET_ID or (
-        sheet_state.spreadsheet_id if sheet_state else ""
-    )
+    persisted_id = sheet_state.spreadsheet_id if sheet_state else ""
+    # Discard the legacy demo ID from earlier simulated "successful" syncs.
+    if persisted_id == "1DemoSheetKinetixExport2026":
+        persisted_id = ""
+    target_sheet_id = spreadsheet_id or settings.GOOGLE_SHEET_ID or persisted_id
 
     products_rows = await prepare_products_sheet_rows(session)
     emails_rows = await prepare_emails_sheet_rows(session)
