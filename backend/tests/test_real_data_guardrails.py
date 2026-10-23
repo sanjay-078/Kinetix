@@ -69,3 +69,27 @@ async def test_missing_original_pdf_returns_404_without_creating_a_fake(tmp_path
 
     assert response.status_code == 404
     assert not (tmp_path / filename).exists()
+
+
+@pytest.mark.asyncio
+async def test_missing_pdf_attachment_bytes_never_create_a_catalogue(monkeypatch):
+    from app.database import AsyncSessionLocal
+    from app.services import ingestion
+
+    def forbidden_fake_pdf(*args, **kwargs):
+        raise AssertionError("No synthetic or missing PDF may be stored")
+
+    monkeypatch.setattr(ingestion, "process_pdf_attachment", forbidden_fake_pdf)
+    source_mail = {
+        "id": "missing-original-pdf-fixture-20261023",
+        "threadId": "missing-original-pdf-fixture-thread",
+        "sender": "quotes@fixturesupplier.invalid",
+        "subject": "Quotation for Model SAMPLE-42",
+        "body_text": "Product: Test Actuator\nModel: SAMPLE-42\nPrice: USD 24.00",
+        "attachments": [
+            {"filename": "claimed-catalogue.pdf", "mime_type": "application/pdf"}
+        ],
+    }
+    async with AsyncSessionLocal() as session:
+        result = await ingestion.process_single_email(session, source_mail)
+    assert result["pdf_count"] == 0
