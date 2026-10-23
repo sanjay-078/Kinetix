@@ -186,7 +186,9 @@ async def run_mailbox_sync_worker(account_email: str = "exportdtp@gmail.com"):
                 else:
                     try:
                         async with AsyncSessionLocal() as session:
-                            result = await process_single_email(session, raw_msg)
+                            result = await process_single_email(
+                                session, raw_msg, google_creds=creds
+                            )
                         if result.get("status") == "ignored":
                             GLOBAL_PROGRESS["irrelevant_count"] += 1
                         else:
