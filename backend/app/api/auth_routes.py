@@ -100,7 +100,8 @@ async def auth_callback(
             db.add(account)
 
         account.access_token_encrypted = encrypt_token(creds.token)
-        account.refresh_token_encrypted = encrypt_token(creds.refresh_token or "")
+        if creds.refresh_token:
+            account.refresh_token_encrypted = encrypt_token(creds.refresh_token)
         account.token_uri = creds.token_uri or "https://oauth2.googleapis.com/token"
         account.client_id = settings.GOOGLE_CLIENT_ID
         account.status = "connected"
