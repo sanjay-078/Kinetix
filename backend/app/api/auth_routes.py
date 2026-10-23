@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException
+import hmac
+
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,7 +34,7 @@ async def get_auth_status(db: AsyncSession = Depends(get_db)):
     }
 
 @router.get("/login")
-async def login_google():
+async def login_google(request: Request):
     if not is_oauth_configured():
         raise HTTPException(
             status_code=503,
@@ -48,16 +50,27 @@ async def login_google():
             include_granted_scopes="true",
             prompt="consent"
         )
+        request.session.clear()
+        request.session["oauth_state"] = state
         return {"authorization_url": authorization_url, "status": "ok"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to generate OAuth URL: {e!s}")
 
 @router.get("/callback")
-async def auth_callback(code: str = None, state: str = None, error: str = None, db: AsyncSession = Depends(get_db)):
+async def auth_callback(
+    request: Request,
+    code: str = None,
+    state: str = None,
+    error: str = None,
+    db: AsyncSession = Depends(get_db),
+):
     if error:
         raise HTTPException(status_code=400, detail=f"Google OAuth error: {error}")
     if not code:
         raise HTTPException(status_code=400, detail="Missing code parameter from OAuth response")
+    expected = request.session.pop("oauth_state", "")
+    if not expected or not state or not hmac.compare_digest(expected, state):
+        raise HTTPException(status_code=403, detail="Invalid Google OAuth session state")
     try:
         flow = get_google_oauth_flow()
         flow.fetch_token(code=code)
@@ -70,8 +83,14 @@ async def auth_callback(code: str = None, state: str = None, error: str = None, 
                 "https://www.googleapis.com/oauth2/v2/userinfo",
                 headers={"Authorization": f"Bearer {creds.token}"}
             )
+            resp.raise_for_status()
             user_info = resp.json()
-            email = user_info.get("email", settings.TARGET_GMAIL_ACCOUNT)
+            email = str(user_info.get("email") or "").lower().strip()
+            if not email or email != settings.TARGET_GMAIL_ACCOUNT.lower():
+                raise HTTPException(
+                    status_code=403,
+                    detail="Only the configured mailbox owner may connect Gmail",
+                )
 
         result = await db.execute(select(ConnectedAccount).where(ConnectedAccount.email == email))
         account = result.scalar_one_or_none()
@@ -87,15 +106,22 @@ async def auth_callback(code: str = None, state: str = None, error: str = None, 
         account.status = "connected"
         await db.commit()
 
+        request.session["owner_email"] = email
+
         # Trigger initial discovery sync
         start_background_worker(account_email=email)
 
         return RedirectResponse(url="/integrations?status=connected")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"OAuth callback exchange failed: {e!s}")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=502,
+            detail="Google authorization could not be completed. Please retry.",
+        ) from None
 
 @router.post("/disconnect")
-async def disconnect_account(db: AsyncSession = Depends(get_db)):
+async def disconnect_account(request: Request, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(ConnectedAccount).where(ConnectedAccount.email == settings.TARGET_GMAIL_ACCOUNT))
     account = result.scalar_one_or_none()
     if account:
@@ -106,5 +132,6 @@ async def disconnect_account(db: AsyncSession = Depends(get_db)):
         account.access_token_encrypted = ""
         account.refresh_token_encrypted = ""
         await db.commit()
+    request.session.clear()
     return {"status": "disconnected", "email": settings.TARGET_GMAIL_ACCOUNT}
 
