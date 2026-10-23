@@ -1,12 +1,12 @@
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database import get_db
-from app.models import ConnectedAccount, Product, SheetSyncState
+from app.models import ConnectedAccount, SheetSyncState
 from app.services.auth import get_valid_credentials
 from app.services.sheets import batch_sync_to_google_sheets
 from app.services.worker import start_background_worker
@@ -29,7 +29,6 @@ async def get_integrations_status(db: AsyncSession = Depends(get_db)):
         and sheet_state.status == "complete"
         and sheet_state.spreadsheet_id
     )
-    products_count = (await db.execute(select(func.count(Product.id)))).scalar() or 0
 
     return {
         "gmail": {
