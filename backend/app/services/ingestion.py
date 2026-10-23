@@ -185,9 +185,12 @@ async def process_single_email(session: AsyncSession, raw_msg: dict[str, Any]) -
     first_pdf_link = None
     for att in attachments_raw:
         filename = att.get("filename", "attachment.pdf")
-        att_bytes = att.get("bytes", b"%PDF-1.4\n% Sample PDF catalogue byte container\n%%EOF")
+        att_bytes = att.get("bytes")
 
         if filename.lower().endswith(".pdf") or att.get("mime_type") == "application/pdf":
+            if not isinstance(att_bytes, (bytes, bytearray)) or not att_bytes:
+                logger.error("Skipping PDF attachment without original downloaded bytes")
+                continue
             try:
                 pdf_info = process_pdf_attachment(filename, att_bytes, email_record.id, supplier.id)
                 pdf_count += 1
