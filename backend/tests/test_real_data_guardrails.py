@@ -7,7 +7,6 @@ import pytest
 
 from app.main import app
 from app.services.ingestion import GLOBAL_PROGRESS
-from app.services.pdf_guardrail import MEDIA_DIR
 from app.services.worker import (
     discover_all_gmail_message_ids,
     run_mailbox_sync_worker,
