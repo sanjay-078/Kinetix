@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import logging
 import time
@@ -7,6 +8,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.models import (
     Attachment,
     Email,
@@ -110,7 +112,9 @@ def parse_mime_payload(payload: dict[str, Any]) -> tuple[str, str, list[dict[str
     return body_text.strip(), body_html.strip(), attachments
 
 
-async def process_single_email(session: AsyncSession, raw_msg: dict[str, Any]) -> dict[str, Any]:
+async def process_single_email(
+    session: AsyncSession, raw_msg: dict[str, Any], google_creds=None
+) -> dict[str, Any]:
     """
     Durable, idempotent processing of a single Gmail message.
     """
@@ -185,11 +189,26 @@ async def process_single_email(session: AsyncSession, raw_msg: dict[str, Any]) -
     first_pdf_link = None
     for att in attachments_raw:
         filename = att.get("filename", "attachment.pdf")
-        att_bytes = att.get("bytes", b"%PDF-1.4\n% Sample PDF catalogue byte container\n%%EOF")
+        att_bytes = att.get("bytes")
 
         if filename.lower().endswith(".pdf") or att.get("mime_type") == "application/pdf":
+            if not isinstance(att_bytes, (bytes, bytearray)) or not att_bytes:
+                logger.error("Skipping PDF attachment without original downloaded bytes")
+                continue
             try:
-                pdf_info = process_pdf_attachment(filename, att_bytes, email_record.id, supplier.id)
+                if settings.APP_ENV.lower() == "production":
+                    if not google_creds or not getattr(google_creds, "valid", False):
+                        raise RuntimeError("Google Drive authorization is required for PDF storage")
+                    from app.services.drive import upload_original_pdf
+
+                    pdf_info = await asyncio.to_thread(
+                        upload_original_pdf, google_creds, filename, att_bytes
+                    )
+                    pdf_info["storage_path"] = None
+                else:
+                    pdf_info = process_pdf_attachment(
+                        filename, att_bytes, email_record.id, supplier.id
+                    )
                 pdf_count += 1
                 if not first_pdf_link:
                     first_pdf_link = pdf_info["web_view_link"]
@@ -203,11 +222,15 @@ async def process_single_email(session: AsyncSession, raw_msg: dict[str, Any]) -
                     file_size=pdf_info["file_size"],
                     is_pdf=True,
                     storage_path=pdf_info["storage_path"],
+                    drive_file_id=pdf_info.get("drive_file_id"),
                     web_view_link=pdf_info["web_view_link"]
                 )
                 session.add(attachment_rec)
-            except Exception as e:
-                logger.warning(f"Error handling PDF attachment {filename}: {e}")
+            except Exception:
+                logger.exception("Unable to store original PDF attachment")
+                # No pretend success: roll back the email so it can be retried.
+                if settings.APP_ENV.lower() == "production":
+                    raise
 
     email_record.pdf_count = pdf_count
     supplier.catalogue_count += pdf_count

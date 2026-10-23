@@ -138,65 +138,96 @@ async def prepare_attributes_sheet_rows(session: AsyncSession) -> list[list[Any]
 
 async def batch_sync_to_google_sheets(session: AsyncSession, creds=None, spreadsheet_id: str = "") -> dict[str, Any]:
     """
-    Executes batch synchronization to Google Sheets.
-    If creds / spreadsheet_id are not supplied, validates and prepares local batch payloads.
+    Synchronize the current database with a *real* Google spreadsheet.
+
+    A successful response always means the Google Sheets API accepted the writes.
+    Offline payload validation belongs in tests; it must not masquerade as syncing.
     """
+    if creds is None or not getattr(creds, "valid", False):
+        raise RuntimeError("Google Sheets sync requires an authorized Google account")
+
+    state_result = await session.execute(select(SheetSyncState))
+    sheet_state = state_result.scalar_one_or_none()
+    persisted_id = sheet_state.spreadsheet_id if sheet_state else ""
+    # Discard the legacy demo ID from earlier simulated "successful" syncs.
+    if persisted_id == "1DemoSheetKinetixExport2026":
+        persisted_id = ""
+    target_sheet_id = spreadsheet_id or settings.GOOGLE_SHEET_ID or persisted_id
+
     products_rows = await prepare_products_sheet_rows(session)
     emails_rows = await prepare_emails_sheet_rows(session)
     attachments_rows = await prepare_attachments_sheet_rows(session)
     attributes_rows = await prepare_attributes_sheet_rows(session)
 
-    target_sheet_id = spreadsheet_id or settings.GOOGLE_SHEET_ID
+    from googleapiclient.discovery import build
 
-    if creds and creds.valid:
-        try:
-            from googleapiclient.discovery import build
-            service = build("sheets", "v4", credentials=creds)
+    try:
+        service = build("sheets", "v4", credentials=creds, cache_discovery=False)
+        sheets_api = service.spreadsheets()
+        required_tabs = ("Products", "Emails", "Attachments", "Attributes")
 
-            # Auto-create spreadsheet if none provided
-            if not target_sheet_id:
-                spreadsheet_body = {
+        if not target_sheet_id:
+            document = sheets_api.create(
+                body={
                     "properties": {"title": "Kinetix Supplier Products & Catalogues"},
-                    "sheets": [
-                        {"properties": {"title": "Products"}},
-                        {"properties": {"title": "Emails"}},
-                        {"properties": {"title": "Attachments"}},
-                        {"properties": {"title": "Attributes"}}
-                    ]
+                    "sheets": [{"properties": {"title": name}} for name in required_tabs],
                 }
-                new_sheet = service.spreadsheets().create(body=spreadsheet_body).execute()
-                target_sheet_id = new_sheet.get("spreadsheetId")
-                logger.info(f"Created new Google Spreadsheet: {target_sheet_id}")
-
-            # Batch update all tabs
-            data = [
-                {"range": "Products!A1", "values": products_rows},
-                {"range": "Emails!A1", "values": emails_rows},
-                {"range": "Attachments!A1", "values": attachments_rows},
-                {"range": "Attributes!A1", "values": attributes_rows}
-            ]
-            body = {"valueInputOption": "RAW", "data": data}
-            service.spreadsheets().values().batchUpdate(
-                spreadsheetId=target_sheet_id, body=body
             ).execute()
-            logger.info(f"Successfully synced rows to Google Sheet {target_sheet_id} in batch mode.")
-        except Exception as e:
-            logger.error(f"Failed Google Sheets batch sync: {e}")
-            raise e
+            target_sheet_id = document["spreadsheetId"]
+            logger.info("Created a Google spreadsheet for supplier data")
+        else:
+            document = sheets_api.get(spreadsheetId=target_sheet_id).execute()
+            existing_tabs = {
+                sheet["properties"]["title"] for sheet in document.get("sheets", [])
+            }
+            missing_tabs = [name for name in required_tabs if name not in existing_tabs]
+            if missing_tabs:
+                sheets_api.batchUpdate(
+                    spreadsheetId=target_sheet_id,
+                    body={
+                        "requests": [
+                            {"addSheet": {"properties": {"title": name}}}
+                            for name in missing_tabs
+                        ]
+                    },
+                ).execute()
 
-    # Update or create SheetSyncState in DB
-    sync_res = await session.execute(select(SheetSyncState))
-    sheet_state = sync_res.scalar_one_or_none()
-    if not sheet_state:
+        # Clearing first prevents stale trailing rows when the dataset shrinks.
+        sheets_api.values().batchClear(
+            spreadsheetId=target_sheet_id,
+            body={"ranges": list(required_tabs)},
+        ).execute()
+        sheets_api.values().batchUpdate(
+            spreadsheetId=target_sheet_id,
+            body={
+                "valueInputOption": "RAW",
+                "data": [
+                    {"range": "Products!A1", "values": products_rows},
+                    {"range": "Emails!A1", "values": emails_rows},
+                    {"range": "Attachments!A1", "values": attachments_rows},
+                    {"range": "Attributes!A1", "values": attributes_rows},
+                ],
+            },
+        ).execute()
+    except Exception:
+        logger.exception("Google Sheets sync failed; no success state recorded")
+        raise
+
+    if sheet_state is None:
         sheet_state = SheetSyncState()
         session.add(sheet_state)
 
-    sheet_state.spreadsheet_id = target_sheet_id or "1DemoSheetKinetixExport2026"
-    sheet_state.spreadsheet_url = f"https://docs.google.com/spreadsheets/d/{sheet_state.spreadsheet_id}"
+    sheet_state.spreadsheet_id = target_sheet_id
+    sheet_state.spreadsheet_url = (
+        f"https://docs.google.com/spreadsheets/d/{target_sheet_id}"
+    )
     sheet_state.products_synced = len(products_rows) - 1
     sheet_state.emails_synced = len(emails_rows) - 1
     sheet_state.attachments_synced = len(attachments_rows) - 1
     sheet_state.status = "complete"
+    sheet_state.error_message = None
+    from datetime import datetime, timezone
+    sheet_state.last_sync_at = datetime.now(timezone.utc)
     await session.commit()
 
     return {
@@ -205,6 +236,5 @@ async def batch_sync_to_google_sheets(session: AsyncSession, creds=None, spreads
         "spreadsheet_url": sheet_state.spreadsheet_url,
         "products_synced": sheet_state.products_synced,
         "emails_synced": sheet_state.emails_synced,
-        "attachments_synced": sheet_state.attachments_synced
+        "attachments_synced": sheet_state.attachments_synced,
     }
-

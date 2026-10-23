@@ -3,8 +3,9 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.sessions import SessionMiddleware
 
 from app.api.auth_routes import router as auth_router
 from app.api.catalogues_routes import router as catalogues_router
@@ -15,6 +16,7 @@ from app.api.integrations_routes import router as integrations_router
 from app.api.products_routes import router as products_router
 from app.api.review_routes import router as review_router
 from app.api.suppliers_routes import router as suppliers_router
+from app.config import settings
 from app.database import Base, engine
 from app.services.pdf_guardrail import MEDIA_DIR
 from app.services.worker import start_background_worker
@@ -22,10 +24,23 @@ from app.services.worker import start_background_worker
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Never run a production deployment with shared secrets or ephemeral SQLite.
+    if settings.APP_ENV.lower() == "production":
+        if (
+            settings.SESSION_SECRET == "kinetix-production-secret-key-32charsmin!"
+            or settings.ENCRYPTION_KEY == "kinetix-token-encryption-secret-key32!"
+            or len(settings.SESSION_SECRET) < 32
+            or len(settings.ENCRYPTION_KEY) < 32
+        ):
+            raise RuntimeError(
+                "Production requires unique SESSION_SECRET and ENCRYPTION_KEY values"
+            )
+        if settings.DATABASE_URL.startswith("sqlite"):
+            raise RuntimeError("Production requires a durable PostgreSQL DATABASE_URL")
     # Initialize DB tables on startup
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    # Automatically start worker to process sample historical mailbox on app launch
+    # Only authorized real Gmail accounts can initiate mailbox scanning.
     start_background_worker()
     yield
 
@@ -39,7 +54,11 @@ app = FastAPI(
 # Enable CORS for production & frontend dev
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=(
+        ["https://kinetix-app.onrender.com"]
+        if settings.APP_ENV.lower() == "production"
+        else ["http://localhost:3000", "https://kinetix-app.onrender.com"]
+    ),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -55,6 +74,31 @@ app.include_router(catalogues_router)
 app.include_router(review_router)
 app.include_router(integrations_router)
 app.include_router(diagnostics_router)
+
+# Sensitive supplier/email data is private even if someone knows the URL.
+# In development automated fixtures can still exercise the API without OAuth.
+@app.middleware("http")
+async def owner_session_guard(request: Request, call_next):
+    path = request.url.path
+    private_prefixes = (
+        "/api/products",
+        "/api/suppliers",
+        "/api/emails",
+        "/api/catalogues",
+        "/api/review",
+        "/api/integrations",
+        "/api/dashboard",
+        "/api/diagnostics",
+        "/api/auth/disconnect",
+        "/media/",
+    )
+    if settings.APP_ENV.lower() == "production" and path.startswith(private_prefixes):
+        if request.session.get("owner_email") != settings.TARGET_GMAIL_ACCOUNT:
+            return JSONResponse(
+                {"detail": "Owner authentication required"}, status_code=401
+            )
+    return await call_next(request)
+
 
 # Mount media directory for PDF downloads
 app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
@@ -77,3 +121,15 @@ if os.path.exists(FRONTEND_DIST):
                 return FileResponse(file_path)
             return FileResponse(os.path.join(FRONTEND_DIST, "index.html"))
         return response
+
+
+# Session middleware must be the outermost middleware, so the guard can
+# validate the signed cookie before any private endpoint is dispatched.
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.SESSION_SECRET,
+    session_cookie="kinetix_session",
+    same_site="lax",
+    https_only=settings.APP_ENV.lower() == "production",
+    max_age=12 * 60 * 60,
+)

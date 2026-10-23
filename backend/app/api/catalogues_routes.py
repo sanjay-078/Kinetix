@@ -1,6 +1,6 @@
 import os
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -46,9 +46,8 @@ async def download_pdf_catalogue(filename: str):
     safe_filename = os.path.basename(filename)
     filepath = os.path.join(MEDIA_DIR, safe_filename)
 
-    if not os.path.exists(filepath):
-        # Create a dummy PDF if requested filename doesn't exist on disk yet
-        with open(filepath, "wb") as f:
-            f.write(b"%PDF-1.5\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>\nendobj\nxref\n0 4\n0000000000 65535 f \n0000000010 00000 n \n0000000060 00000 n \n0000000117 00000 n \ntrailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n190\n%%EOF")
+    # Never synthesize or overwrite a missing supplier document.
+    if not os.path.isfile(filepath):
+        raise HTTPException(status_code=404, detail="Original PDF catalogue not found")
 
     return FileResponse(filepath, media_type="application/pdf", filename=safe_filename)
